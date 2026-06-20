@@ -3,28 +3,52 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-// Initialize Supabase if variables are configured, otherwise fallback to local-storage mocking.
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+// Validate that the URL is a real HTTP or HTTPS URL to prevent initialization crashes
+const isValidUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch (e) {
+    return false;
+  }
+};
 
-export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+export const isSupabaseConfigured = !!(
+  supabaseUrl && 
+  supabaseAnonKey && 
+  isValidUrl(supabaseUrl)
+);
+
+let supabaseInstance = null;
+if (isSupabaseConfigured) {
+  try {
+    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (error) {
+    console.warn("Failed to initialize Supabase client:", error.message);
+  }
+}
+
+export const supabase = supabaseInstance;
 
 // Mock database service that mimics Supabase database operations using localStorage
 export const mockDb = {
   async getSubmissions(userId) {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from("submissions")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
-    } else {
-      const data = localStorage.getItem(`crackcode_submissions_${userId}`) || "[]";
-      return JSON.parse(data);
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("submissions")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+        if (!error) return data;
+      } catch (e) {
+        console.warn("Failed fetching from Supabase, falling back to localStorage", e);
+      }
     }
+    
+    // LocalStorage fallback
+    const data = localStorage.getItem(`crackcode_submissions_${userId}`) || "[]";
+    return JSON.parse(data);
   },
 
   async saveSubmission(userId, problemId, code, language, status) {
@@ -38,39 +62,46 @@ export const mockDb = {
       created_at: new Date().toISOString()
     };
 
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from("submissions")
-        .insert([newRecord])
-        .select();
-      if (error) throw error;
-      
-      // Update statistics in background if status is Correct
-      if (status === "Correct") {
-        await this.updateProfileStats(userId);
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("submissions")
+          .insert([newRecord])
+          .select();
+        if (!error) {
+          if (status === "Correct") {
+            await this.updateProfileStats(userId);
+          }
+          return data[0];
+        }
+      } catch (e) {
+        console.warn("Failed saving to Supabase, falling back to localStorage", e);
       }
-      return data[0];
-    } else {
-      const existing = await this.getSubmissions(userId);
-      const updated = [newRecord, ...existing];
-      localStorage.setItem(`crackcode_submissions_${userId}`, JSON.stringify(updated));
-      
-      if (status === "Correct" || status === "Debug Mode") {
-        await this.updateProfileStats(userId);
-      }
-      return newRecord;
     }
+    
+    // LocalStorage fallback
+    const existing = await this.getSubmissions(userId);
+    const updated = [newRecord, ...existing];
+    localStorage.setItem(`crackcode_submissions_${userId}`, JSON.stringify(updated));
+    
+    if (status === "Correct" || status === "Debug Mode") {
+      await this.updateProfileStats(userId);
+    }
+    return newRecord;
   },
 
   async getProfile(userId, defaultName = "Student") {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", userId)
-        .single();
-      if (error && error.code !== "PGRST116") throw error; // PGRST116 is code for no rows returned
-      if (data) return data;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .single();
+        if (!error && data) return data;
+      } catch (e) {
+        console.warn("Failed fetching profile from Supabase, falling back to localStorage", e);
+      }
     }
     
     // LocalStorage fallback
@@ -93,17 +124,21 @@ export const mockDb = {
   },
 
   async saveProfile(profile) {
-    if (isSupabaseConfigured) {
-      const { data, error } = await supabase
-        .from("profiles")
-        .upsert(profile)
-        .select();
-      if (error) throw error;
-      return data[0];
-    } else {
-      localStorage.setItem(`crackcode_profile_${profile.id}`, JSON.stringify(profile));
-      return profile;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .upsert(profile)
+          .select();
+        if (!error) return data[0];
+      } catch (e) {
+        console.warn("Failed saving profile to Supabase, falling back to localStorage", e);
+      }
     }
+    
+    // LocalStorage fallback
+    localStorage.setItem(`crackcode_profile_${profile.id}`, JSON.stringify(profile));
+    return profile;
   },
 
   async updateProfileStats(userId) {
@@ -124,7 +159,6 @@ export const mockDb = {
       } else if (diffDays > 1) {
         profile.streak = 1; // Streak broken
       }
-      // If diffDays is 0 (already solved today), streak stays the same
     }
     profile.last_solve_date = todayStr;
 
@@ -144,4 +178,3 @@ export const mockDb = {
     return profile;
   }
 };
-
