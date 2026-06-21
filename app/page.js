@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
-import { mockDb, isSupabaseConfigured } from "./lib/supabase";
+import { mockDb, isSupabaseConfigured, supabase } from "./lib/supabase";
+import { PROBLEMS_LIST, FEATURED_DETAILS } from "./lib/problems";
 import {
   Play,
   Pause,
@@ -30,215 +31,28 @@ import {
   LogOut,
   Maximize2,
   Minimize2,
-  Layers
+  Layers,
+  Terminal,
+  Search,
+  Filter,
+  Check,
+  Award
 } from "lucide-react";
 
-// Pre-defined CP problems for NextWave students
-const PROBLEMS = [
-  {
-    id: "two-sum",
-    title: "Two Sum (Sorted Array)",
-    difficulty: "Easy",
-    timeLimit: "1.0s",
-    memoryLimit: "256MB",
-    description: `Given a **1-indexed** array of integers \`numbers\` that is already **sorted in non-decreasing order**, find two numbers such that they add up to a specific \`target\` number.
-    
-Return the indices of the two numbers, \`[index1, index2]\`, added by one as an integer array of length 2.
-
-Your solution must use only **O(1) extra space** and run in **O(N) time** complexity.`,
-    sampleInput: "[2, 7, 11, 15], target = 9",
-    defaultCode: `#include <vector>
-#include <iostream>
-using namespace std;
-
-// Find two indices that sum to target
-vector<int> twoSum(vector<int>& numbers, int target) {
-    int left = 0;
-    int right = numbers.size() - 1;
-    
-    while (left < right) {
-        int current_sum = numbers[left] + numbers[right];
-        if (current_sum == target) {
-            return {left + 1, right + 1}; // 1-indexed return
-        }
-        if (current_sum < target) {
-            left++; // Bug: What if pointers are handled incorrectly?
-        } else {
-            right--;
-        }
-    }
-    return {};
-}`,
-    defaultTraceInput: `{"initialState": [2, 7, 11, 15], "target": 9}`
-  },
-  {
-    id: "binary-search",
-    title: "Binary Search",
-    difficulty: "Easy",
-    timeLimit: "0.5s",
-    memoryLimit: "128MB",
-    description: `Given an array of integers \`nums\` which is sorted in ascending order, and an integer \`target\`, write a function to search \`target\` in \`nums\`. If \`target\` exists, then return its index. Otherwise, return \`-1\`.
-
-You must write an algorithm with **O(log N)** runtime complexity.`,
-    sampleInput: "[-1, 0, 3, 5, 9, 12], target = 9",
-    defaultCode: `#include <vector>
-using namespace std;
-
-int search(vector<int>& nums, int target) {
-    int left = 0;
-    int right = nums.size() - 1;
-    
-    // Bug: Standard binary search loop condition
-    while (left <= right) {
-        int mid = left + (right - left) / 2;
-        if (nums[mid] == target) {
-            return mid;
-        }
-        if (nums[mid] < target) {
-            left = mid + 1;
-        } else {
-            right = mid - 1;
-        }
-    }
-    return -1;
-}`,
-    defaultTraceInput: `{"initialState": [-1, 0, 3, 5, 9, 12], "target": 9}`
-  },
-  {
-    id: "fibonacci",
-    title: "Fibonacci Number (Recursion + Memo)",
-    difficulty: "Easy",
-    timeLimit: "1.0s",
-    memoryLimit: "256MB",
-    description: `The Fibonacci numbers, commonly denoted \`F(n)\`, form a sequence, called the Fibonacci sequence, such that each number is the sum of the two preceding ones, starting from 0 and 1.
-    
-Compute \`F(n)\`. Solve this using **recursion with memoization** to avoid the exponential O(2^N) complexity bottleneck and reduce it to **O(N)**.`,
-    sampleInput: "n = 6",
-    defaultCode: `#include <vector>
-using namespace std;
-
-int fibHelper(int n, vector<int>& memo) {
-    if (n <= 1) return n;
-    
-    if (memo[n] != -1) return memo[n];
-    
-    // Buggy recursion without memo storage:
-    return fibHelper(n - 1, memo) + fibHelper(n - 2, memo);
-}
-
-int fib(int n) {
-    vector<int> memo(n + 1, -1);
-    return fibHelper(n, memo);
-}`,
-    defaultTraceInput: `{"initialState": [0, 1, 1, 2, 3, 5, 8], "n": 6}`
-  }
-];
-
-const PRESETS_TEMPLATES = [
-  {
-    id: "dsu",
-    name: "Disjoint Set Union (DSU)",
-    description: "Standard DSU boilerplate with Path Compression and Union by Rank.",
-    code: `struct DSU {
-    vector<int> parent, rank;
-    DSU(int n) {
-        parent.resize(n);
-        rank.resize(n, 0);
-        for(int i=0; i<n; i++) parent[i] = i;
-    }
-    int find(int i) {
-        if (parent[i] == i)
-            return i;
-        return parent[i] = find(parent[i]); // Path compression
-    }
-    void unite(int i, int j) {
-        int root_i = find(i);
-        int root_j = find(j);
-        if (root_i != root_j) {
-            if (rank[root_i] < rank[root_j])
-                swap(root_i, root_j);
-            parent[root_j] = root_i;
-            if (rank[root_i] == rank[root_j])
-                rank[root_i]++;
-        }
-    }
-};`
-  },
-  {
-    id: "segtree",
-    name: "Segment Tree",
-    description: "Standard Segment tree for Range Sum query, point updates.",
-    code: `struct SegTree {
-    int size;
-    vector<long long> sums;
-    void init(int n) {
-        size = 1;
-        while(size < n) size *= 2;
-        sums.assign(2 * size, 0LL);
-    }
-    void build(vector<int>& a, int x, int lx, int rx) {
-        if (rx - lx == 1) {
-            if (lx < (int)a.size()) sums[x] = a[lx];
-            return;
-        }
-        int m = (lx + rx) / 2;
-        build(a, 2 * x + 1, lx, m);
-        build(a, 2 * x + 2, m, rx);
-        sums[x] = sums[2 * x + 1] + sums[2 * x + 2];
-    }
-    void set(int i, int v, int x, int lx, int rx) {
-        if (rx - lx == 1) {
-            sums[x] = v;
-            return;
-        }
-        int m = (lx + rx) / 2;
-        if (i < m) set(i, v, 2 * x + 1, lx, m);
-        else set(i, v, 2 * x + 2, m, rx);
-        sums[x] = sums[2 * x + 1] + sums[2 * x + 2];
-    }
-    long long sum(int l, int r, int x, int lx, int rx) {
-        if (lx >= r || l >= rx) return 0;
-        if (lx >= l && rx <= r) return sums[x];
-        int m = (lx + rx) / 2;
-        return sum(l, r, 2 * x + 1, lx, m) + sum(l, r, 2 * x + 2, m, rx);
-    }
-};`
-  },
-  {
-    id: "dijkstra",
-    name: "Dijkstra Shortest Path",
-    description: "C++ Dijkstra template using std::priority_queue.",
-    code: `vector<long long> dijkstra(int start, int n, vector<vector<pair<int, int>>>& adj) {
-    vector<long long> dist(n, 1e18); // Infinity
-    priority_queue<pair<long long, int>, vector<pair<long long, int>>, greater<pair<long long, int>>> pq;
-    dist[start] = 0;
-    pq.push({0, start});
-    while(!pq.empty()) {
-        auto [d, u] = pq.top();
-        pq.pop();
-        if (d > dist[u]) continue;
-        for(auto& edge : adj[u]) {
-            int v = edge.first;
-            int w = edge.second;
-            if (dist[u] + w < dist[v]) {
-                dist[v] = dist[u] + w;
-                pq.push({dist[v], v});
-            }
-        }
-    }
-    return dist;
-};`
-  }
-];
-
 export default function CrackCodeDashboard() {
-  const [selectedProblem, setSelectedProblem] = useState(PROBLEMS[0]);
-  const [code, setCode] = useState(selectedProblem.defaultCode);
-  const [traceInput, setTraceInput] = useState(selectedProblem.defaultTraceInput);
-  const [activeTab, setActiveTab] = useState("problem"); // problem, coach, hints, stress, optimize, history
+  const [problems, setProblems] = useState(PROBLEMS_LIST);
+  const [selectedProblem, setSelectedProblem] = useState(PROBLEMS_LIST[0]);
+  const [code, setCode] = useState("");
+  const [traceInput, setTraceInput] = useState("");
+  
+  // Left Panel tabs: problem, coach, hints, stress, optimize, history
+  const [activeTab, setActiveTab] = useState("problem"); 
   const [clientApiKey, setClientApiKey] = useState("");
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Dynamic Problem Setter loading state
+  const [generatingProblem, setGeneratingProblem] = useState(false);
 
   // Authentication & Stats States
   const [studentUser, setStudentUser] = useState(null);
@@ -247,6 +61,15 @@ export default function CrackCodeDashboard() {
   const [usernameInput, setUsernameInput] = useState("");
   const [authTab, setAuthTab] = useState("login"); // login / signup
   const [submissionsList, setSubmissionsList] = useState([]);
+
+  // Google Sign-In simulation states
+  const [showGoogleChooser, setShowGoogleChooser] = useState(false);
+
+  // Search & Filters for 189 problems
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [selectedDifficulty, setSelectedDifficulty] = useState("All");
+  const [showProblemListDropdown, setShowProblemListDropdown] = useState(false);
 
   // Template Library states
   const [showTemplateHub, setShowTemplateHub] = useState(false);
@@ -263,10 +86,30 @@ export default function CrackCodeDashboard() {
     "Duplicate elements"
   ]);
   const [hints, setHints] = useState([
-    { title: "Hint 1: Logic & Approach", content: "To solve this in O(N) time with O(1) space, look into the two-pointer technique on sorted arrays.", unlocked: false },
-    { title: "Hint 2: Edge Case & Bug Spotting", "content": "Think about whether left and right pointers can cross or access out-of-bound indexes.", unlocked: false },
-    { title: "Hint 3: Optimization & Fix", "content": "Check your update criteria inside the loop to make sure pointers move in the correct direction.", unlocked: false }
+    { title: "Hint 1: Logic & Approach", content: "To solve this, analyze pointer sweeps or recursive subproblems depending on the problem class.", unlocked: false },
+    { title: "Hint 2: Edge Case & Bug Spotting", "content": "Double check boundary overflows and empty list conditions.", unlocked: false },
+    { title: "Hint 3: Optimization & Fix", "content": "Look for redundant nested traversals and swap with hashing or binary search.", unlocked: false }
   ]);
+
+  // Sandbox Console Output states (Run Code)
+  const [consoleTab, setConsoleTab] = useState("tracer"); // "tracer" | "console"
+  const [consoleOutput, setConsoleOutput] = useState({
+    status: "Idle",
+    compileOutput: "",
+    stdout: "",
+    returnValue: ""
+  });
+  const [runLoading, setRunLoading] = useState(false);
+
+  // Submit Judgment states
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [submitResult, setSubmitResult] = useState({
+    status: "Accepted",
+    score: 100,
+    testCases: [],
+    feedback: ""
+  });
 
   // Stress test states
   const [stressTests, setStressTests] = useState([]);
@@ -313,7 +156,6 @@ export default function CrackCodeDashboard() {
       setStudentUser(user);
       loadProfile(user.id);
     } else {
-      // Auto open auth modal for first time guests
       setShowAuthModal(true);
     }
   }, []);
@@ -328,6 +170,94 @@ export default function CrackCodeDashboard() {
       setProfileData(null);
     }
   }, [studentUser]);
+
+  // Load details dynamically for a problem
+  useEffect(() => {
+    loadProblemContent(selectedProblem);
+  }, [selectedProblem]);
+
+  const loadProblemContent = async (problem) => {
+    if (problem.featured && FEATURED_DETAILS[problem.id]) {
+      const details = FEATURED_DETAILS[problem.id];
+      setCode(details.defaultCode);
+      setTraceInput(details.defaultTraceInput);
+      setStressTests([]);
+      setOptimizationData(null);
+      setConsoleTab("tracer");
+      setupDefaultTracer(details.defaultTraceInput);
+      return;
+    }
+
+    // If it's a non-featured problem and not loaded yet, query the AI Problem Setter
+    if (!problem.description) {
+      setGeneratingProblem(true);
+      const keyToUse = process.env.GEMINI_API_KEY || clientApiKey;
+      if (!keyToUse) {
+        // Fallback placeholder if no API key is set yet
+        problem.description = `### ${problem.title}\nCategory: ${problem.category}\n\n*Configure your Gemini API Key in the top right to generate this C++ challenge and function skeletons automatically using AI!*`;
+        problem.defaultCode = `// Configure API Key to generate skeleton\n#include <iostream>\nusing namespace std;`;
+        problem.defaultTraceInput = `{"initialState": [1, 2, 3]}`;
+        
+        setCode(problem.defaultCode);
+        setTraceInput(problem.defaultTraceInput);
+        setGeneratingProblem(false);
+        setupDefaultTracer(problem.defaultTraceInput);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/crack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientApiKey,
+            action: "generateProblem",
+            problemTitle: problem.title,
+            problemCategory: problem.category
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.description) {
+          problem.description = data.description;
+          problem.defaultCode = data.defaultCode;
+          problem.defaultTraceInput = data.defaultTraceInput;
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setGeneratingProblem(false);
+      }
+    }
+
+    setCode(problem.defaultCode || "");
+    setTraceInput(problem.defaultTraceInput || "");
+    setStressTests([]);
+    setOptimizationData(null);
+    setConsoleTab("tracer");
+    setupDefaultTracer(problem.defaultTraceInput || "");
+  };
+
+  const setupDefaultTracer = (traceInputStr) => {
+    try {
+      const parsed = JSON.parse(traceInputStr);
+      const initialArr = parsed.initialState || [1, 2, 3];
+      setTracerData({
+        structureType: Array.isArray(initialArr[0]) ? "grid" : "array",
+        initialState: initialArr,
+        steps: [
+          {
+            pointers: {},
+            activeIndices: [],
+            successIndices: [],
+            message: "Click 'Analyze & Trace Code' to generate visualization run."
+          }
+        ]
+      });
+      setCurrentStepIdx(0);
+    } catch (e) {
+      // fallback
+    }
+  };
 
   const loadProfile = async (userId) => {
     try {
@@ -348,33 +278,6 @@ export default function CrackCodeDashboard() {
       console.error("Failed to load submissions", e);
     }
   };
-
-  // Sync editor code when problem changes
-  useEffect(() => {
-    setCode(selectedProblem.defaultCode);
-    setTraceInput(selectedProblem.defaultTraceInput);
-    setStressTests([]);
-    setOptimizationData(null);
-    
-    try {
-      const parsed = JSON.parse(selectedProblem.defaultTraceInput);
-      setTracerData({
-        structureType: "array",
-        initialState: parsed.initialState || [2, 7, 11, 15],
-        steps: [
-          {
-            pointers: { left: 0, right: (parsed.initialState?.length || 4) - 1 },
-            activeIndices: [0, (parsed.initialState?.length || 4) - 1],
-            successIndices: [],
-            message: "Ready to run dry-run trace simulation."
-          }
-        ]
-      });
-      setCurrentStepIdx(0);
-    } catch (e) {
-      // fallback
-    }
-  }, [selectedProblem]);
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -423,7 +326,6 @@ export default function CrackCodeDashboard() {
     setStudentUser(user);
     localStorage.setItem("crackcode_student_user", JSON.stringify(user));
     
-    // Creates or gets existing profile
     await mockDb.getProfile(user.id, user.name);
     await loadProfile(user.id);
     
@@ -431,11 +333,130 @@ export default function CrackCodeDashboard() {
     setUsernameInput("");
   };
 
+  const handleGoogleAuth = async () => {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo: window.location.origin
+          }
+        });
+        if (error) throw error;
+      } catch (e) {
+        console.warn("Real Google login failed, running demo mode:", e);
+        setShowGoogleChooser(true);
+      }
+    } else {
+      setShowGoogleChooser(true);
+    }
+  };
+
+  const handleSelectGoogleAccount = async (account) => {
+    const user = { 
+      id: account.email.replace(/[@.]/g, "_"), 
+      name: account.name, 
+      email: account.email 
+    };
+    
+    setStudentUser(user);
+    localStorage.setItem("crackcode_student_user", JSON.stringify(user));
+    
+    const p = await mockDb.getProfile(user.id, user.name);
+    if (p.solved_count === 0 && p.streak === 0) {
+      p.solved_count = account.solved;
+      p.streak = account.streak;
+      p.level = account.level;
+      await mockDb.saveProfile(p);
+    }
+    
+    await loadProfile(user.id);
+    setShowGoogleChooser(false);
+    setShowAuthModal(false);
+  };
+
   const handleLogout = () => {
     setStudentUser(null);
     setProfileData(null);
     localStorage.removeItem("crackcode_student_user");
     setShowAuthModal(true);
+  };
+
+  // Compile and Execute code locally (Run Code)
+  const handleRunCode = async () => {
+    if (!studentUser) {
+      setShowAuthModal(true);
+      return;
+    }
+    setRunLoading(true);
+    setConsoleTab("console");
+    try {
+      const res = await fetch("/api/crack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          problem: selectedProblem.description,
+          customInput: traceInput,
+          clientApiKey,
+          action: "run"
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setConsoleOutput(data);
+      } else {
+        alert(data.error || "Execution failed");
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRunLoading(false);
+    }
+  };
+
+  // Submit code to Online Judge evaluation
+  const handleSubmitCode = async () => {
+    if (!studentUser) {
+      setShowAuthModal(true);
+      return;
+    }
+    setSubmitLoading(true);
+    setShowSubmitModal(true);
+    try {
+      const res = await fetch("/api/crack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          problem: selectedProblem.description,
+          clientApiKey,
+          action: "submit"
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSubmitResult(data);
+
+        // Record submission in database
+        const subStatus = data.status;
+        await mockDb.saveSubmission(
+          studentUser.id,
+          selectedProblem.title,
+          code,
+          "C++",
+          subStatus
+        );
+        loadSubmissions();
+        loadProfile(studentUser.id);
+      } else {
+        alert(data.error || "Submission failed");
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSubmitLoading(false);
+    }
   };
 
   const handleAnalyze = async (customTestInput = null) => {
@@ -447,6 +468,7 @@ export default function CrackCodeDashboard() {
     setLoading(true);
     setIsPlaying(false);
     setCurrentStepIdx(0);
+    setConsoleTab("tracer");
 
     const testInputToSend = customTestInput || traceInput;
 
@@ -466,21 +488,16 @@ export default function CrackCodeDashboard() {
       const data = await res.json();
 
       if (res.ok) {
-        // Save submission history
-        const hasCorrectState = data.tracerData?.steps?.some(s => s.successIndices && s.successIndices.length > 0);
-        const subStatus = hasCorrectState ? "Correct" : "Debug Mode";
-
+        // Save trace metadata log
         await mockDb.saveSubmission(
           studentUser.id,
           selectedProblem.title,
           code,
           "C++",
-          subStatus
+          "Debug Mode"
         );
         loadSubmissions();
-        loadProfile(studentUser.id); // Reload streak and points
 
-        // Update analysis feedback
         if (data.socraticFeedback) {
           setAnalysisText(data.socraticFeedback.analysis);
           setEdgeCases(data.socraticFeedback.edgeCases || []);
@@ -494,7 +511,6 @@ export default function CrackCodeDashboard() {
           setActiveTab("coach");
         }
 
-        // Update visualization trace data
         if (data.tracerData && data.tracerData.steps && data.tracerData.steps.length > 0) {
           setTracerData(data.tracerData);
           setCurrentStepIdx(0);
@@ -658,6 +674,16 @@ export default function CrackCodeDashboard() {
     handleAnalyze(inputStr);
   };
 
+  // Filter 189 problems by query and tags
+  const filteredProblems = problems.filter((prob) => {
+    const matchesSearch = prob.title.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === "All" || prob.category === selectedCategory;
+    const matchesDifficulty = selectedDifficulty === "All" || prob.difficulty === selectedDifficulty;
+    return matchesSearch && matchesCategory && matchesDifficulty;
+  });
+
+  const categories = ["All", ...new Set(PROBLEMS_LIST.map((p) => p.category))];
+
   const currentStep = tracerData.steps[currentStepIdx] || {
     pointers: {},
     activeIndices: [],
@@ -671,7 +697,7 @@ export default function CrackCodeDashboard() {
       <header className="header">
         <div className="logo-container">
           <div className="logo-text">CrackCode</div>
-          <span className="badge">NextWave CP Coach</span>
+          <span className="badge">NextWave CP Judge</span>
         </div>
 
         {/* Dynamic Achievements HUD */}
@@ -696,6 +722,103 @@ export default function CrackCodeDashboard() {
         )}
 
         <div className="editor-actions" style={{ gap: "12px" }}>
+          {/* Active Problem Selector Button */}
+          <div style={{ position: "relative" }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowProblemListDropdown(!showProblemListDropdown)}
+              style={{ fontSize: "0.85rem", gap: "6px", maxWidth: "250px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              <BookOpen size={14} />
+              <span>Select Problem ({filteredProblems.length})</span>
+            </button>
+
+            {showProblemListDropdown && (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: "42px",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "8px",
+                  padding: "12px",
+                  width: "360px",
+                  boxShadow: "var(--shadow-glow)",
+                  zIndex: 220,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", background: "var(--bg-primary)", borderRadius: "4px", padding: "4px 8px", border: "1px solid var(--border-color)" }}>
+                  <Search size={14} style={{ color: "var(--text-muted)", marginRight: "6px" }} />
+                  <input
+                    type="text"
+                    placeholder="Search 189 DSA problems..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ background: "transparent", border: "none", color: "white", fontSize: "0.8rem", outline: "none", width: "100%" }}
+                  />
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    style={{ background: "var(--bg-tertiary)", color: "white", border: "1px solid var(--border-color)", borderRadius: "4px", fontSize: "0.75rem", padding: "4px" }}
+                  >
+                    {categories.map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={selectedDifficulty}
+                    onChange={(e) => setSelectedDifficulty(e.target.value)}
+                    style={{ background: "var(--bg-tertiary)", color: "white", border: "1px solid var(--border-color)", borderRadius: "4px", fontSize: "0.75rem", padding: "4px" }}
+                  >
+                    <option value="All">All Levels</option>
+                    <option value="Easy">Easy</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Hard">Hard</option>
+                  </select>
+                </div>
+
+                <div style={{ maxHeight: "200px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
+                  {filteredProblems.map((prob) => (
+                    <div
+                      key={prob.id}
+                      onClick={() => {
+                        setSelectedProblem(prob);
+                        setShowProblemListDropdown(false);
+                      }}
+                      style={{
+                        padding: "6px 8px",
+                        borderRadius: "4px",
+                        fontSize: "0.8rem",
+                        cursor: "pointer",
+                        background: selectedProblem.id === prob.id ? "rgba(0, 240, 255, 0.1)" : "transparent",
+                        border: "1px solid",
+                        borderColor: selectedProblem.id === prob.id ? "var(--accent-cyan)" : "transparent",
+                        color: selectedProblem.id === prob.id ? "var(--accent-cyan)" : "var(--foreground)",
+                        display: "flex",
+                        justifyContent: "space-between"
+                      }}
+                    >
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "220px" }}>
+                        {prob.title}
+                      </span>
+                      <span style={{ fontSize: "0.65rem", color: prob.difficulty === "Easy" ? "var(--accent-green)" : prob.difficulty === "Medium" ? "var(--accent-amber)" : "var(--accent-rose)" }}>
+                        {prob.difficulty}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Template Hub Button */}
           <button
             className="btn btn-secondary"
@@ -707,44 +830,18 @@ export default function CrackCodeDashboard() {
           </button>
 
           {/* User Auth Profile Button */}
-          <div style={{ position: "relative" }}>
-            <button
-              className="btn btn-secondary"
-              onClick={() => {
-                if (!studentUser) setShowAuthModal(true);
-                else handleLogout();
-              }}
-              style={{ padding: "6px 12px", fontSize: "0.85rem", gap: "6px" }}
-            >
-              <User size={14} />
-              <span>{studentUser ? studentUser.name : "Sign In"}</span>
-              {studentUser && <LogOut size={12} style={{ marginLeft: "4px", opacity: 0.6 }} />}
-            </button>
-          </div>
-
-          {/* Preset Problem Selector */}
-          <select
-            value={selectedProblem.id}
-            onChange={(e) =>
-              setSelectedProblem(PROBLEMS.find((p) => p.id === e.target.value))
-            }
-            style={{
-              background: "var(--bg-tertiary)",
-              color: "var(--foreground)",
-              border: "1px solid var(--border-color)",
-              padding: "6px 12px",
-              borderRadius: "6px",
-              outline: "none",
-              cursor: "pointer",
-              fontSize: "0.85rem"
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              if (!studentUser) setShowAuthModal(true);
+              else handleLogout();
             }}
+            style={{ padding: "6px 12px", fontSize: "0.85rem", gap: "6px" }}
           >
-            {PROBLEMS.map((prob) => (
-              <option key={prob.id} value={prob.id}>
-                {prob.title} ({prob.difficulty})
-              </option>
-            ))}
-          </select>
+            <User size={14} />
+            <span>{studentUser ? studentUser.name : "Sign In"}</span>
+            {studentUser && <LogOut size={12} style={{ marginLeft: "4px", opacity: 0.6 }} />}
+          </button>
 
           {/* API Key settings panel */}
           <div style={{ position: "relative" }}>
@@ -864,7 +961,7 @@ export default function CrackCodeDashboard() {
               onClick={() => setActiveTab("history")}
             >
               <History size={14} style={{ marginRight: "6px" }} />
-              Solved
+              History
             </button>
           </div>
 
@@ -872,32 +969,41 @@ export default function CrackCodeDashboard() {
             {/* Tab: Problem Details */}
             {activeTab === "problem" && (
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                <div className="problem-card">
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                    <h2 className="problem-title">{selectedProblem.title}</h2>
-                    <span
-                      className="badge"
-                      style={{
-                        borderColor: selectedProblem.difficulty === "Easy" ? "var(--accent-green)" : "var(--accent-amber)",
-                        color: selectedProblem.difficulty === "Easy" ? "var(--accent-green)" : "var(--accent-amber)",
-                        background: "transparent"
-                      }}
-                    >
-                      {selectedProblem.difficulty}
+                {generatingProblem ? (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 0", gap: "12px" }}>
+                    <div style={{ width: "24px", height: "24px", borderRadius: "50%", border: "2px solid var(--accent-cyan)", borderTopColor: "transparent", animation: "pulse 1.5s infinite" }}></div>
+                    <span style={{ fontSize: "0.85rem", color: "var(--accent-cyan)", fontFamily: "var(--font-mono)" }}>
+                      AI Problem Setter generating challenge...
                     </span>
                   </div>
-                  
-                  <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "14px" }}>
-                    <span>Time Limit: {selectedProblem.timeLimit}</span>
-                    <span>Memory Limit: {selectedProblem.memoryLimit}</span>
-                  </div>
+                ) : (
+                  <div className="problem-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                      <h2 className="problem-title">{selectedProblem.title}</h2>
+                      <span
+                        className="badge"
+                        style={{
+                          borderColor: selectedProblem.difficulty === "Easy" ? "var(--accent-green)" : selectedProblem.difficulty === "Medium" ? "var(--accent-amber)" : "var(--accent-rose)",
+                          color: selectedProblem.difficulty === "Easy" ? "var(--accent-green)" : selectedProblem.difficulty === "Medium" ? "var(--accent-amber)" : "var(--accent-rose)",
+                          background: "transparent"
+                        }}
+                      >
+                        {selectedProblem.difficulty}
+                      </span>
+                    </div>
+                    
+                    <div style={{ display: "flex", gap: "12px", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "14px" }}>
+                      <span>Category: {selectedProblem.category}</span>
+                      <span>Time Limit: {selectedProblem.timeLimit}</span>
+                    </div>
 
-                  <p
-                    className="problem-text"
-                    style={{ whiteSpace: "pre-line" }}
-                    dangerouslySetInnerHTML={{ __html: selectedProblem.description }}
-                  />
-                </div>
+                    <p
+                      className="problem-text"
+                      style={{ whiteSpace: "pre-line" }}
+                      dangerouslySetInnerHTML={{ __html: selectedProblem.description }}
+                    />
+                  </div>
+                )}
 
                 <div>
                   <h3 style={{ fontSize: "0.85rem", marginBottom: "8px", fontWeight: "600" }}>
@@ -1208,18 +1314,20 @@ export default function CrackCodeDashboard() {
                         onMouseLeave={(e) => e.currentTarget.style.borderColor = "var(--border-color)"}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                          <span style={{ fontSize: "0.85rem", fontWeight: "600" }}>{sub.problem_id}</span>
+                          <span style={{ fontSize: "0.85rem", fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "200px" }}>
+                            {sub.problem_id}
+                          </span>
                           <span
                             style={{
                               fontSize: "0.75rem",
                               fontWeight: "700",
-                              color: sub.status === "Correct" ? "var(--accent-green)" : "var(--accent-cyan)",
+                              color: sub.status === "Accepted" || sub.status === "Correct" ? "var(--accent-green)" : "var(--accent-cyan)",
                               display: "flex",
                               alignItems: "center",
                               gap: "4px"
                             }}
                           >
-                            {sub.status === "Correct" ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                            {sub.status === "Accepted" || sub.status === "Correct" ? <CheckCircle2 size={12} /> : <Clock size={12} />}
                             {sub.status}
                           </span>
                         </div>
@@ -1246,16 +1354,6 @@ export default function CrackCodeDashboard() {
                 <Code size={16} />
                 <span>solution.cpp (C++)</span>
               </div>
-              <div className="editor-actions">
-                <button
-                  className="btn btn-primary"
-                  onClick={() => handleAnalyze()}
-                  disabled={loading}
-                >
-                  <Sparkles size={16} />
-                  {loading ? "Analyzing..." : "Analyze & Trace Code"}
-                </button>
-              </div>
             </div>
 
             {/* Monaco React Editor */}
@@ -1277,198 +1375,312 @@ export default function CrackCodeDashboard() {
                 }}
               />
             </div>
+
+            {/* Bottom Actions Control Bar (LeetCode Style) */}
+            <div
+              style={{
+                height: "44px",
+                background: "var(--bg-secondary)",
+                borderTop: "1px solid var(--border-color)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0 12px",
+                zIndex: 10
+              }}
+            >
+              <button
+                className="btn btn-secondary"
+                onClick={() => setConsoleTab(consoleTab === "console" ? "tracer" : "console")}
+                style={{ padding: "5px 10px", fontSize: "0.75rem", gap: "4px" }}
+              >
+                <Terminal size={12} />
+                <span>Console Log</span>
+              </button>
+
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  className="btn"
+                  onClick={handleRunCode}
+                  disabled={runLoading || loading}
+                  style={{
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid var(--border-color)",
+                    color: "white",
+                    padding: "5px 12px",
+                    fontSize: "0.75rem",
+                    fontWeight: "600"
+                  }}
+                >
+                  {runLoading ? "Running..." : "Run Code"}
+                </button>
+
+                <button
+                  className="btn"
+                  onClick={handleSubmitCode}
+                  disabled={submitLoading || loading}
+                  style={{
+                    background: "var(--accent-green)",
+                    color: "#0b0f19",
+                    padding: "5px 14px",
+                    fontSize: "0.75rem",
+                    fontWeight: "700"
+                  }}
+                >
+                  {submitLoading ? "Submitting..." : "Submit"}
+                </button>
+
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleAnalyze()}
+                  disabled={loading}
+                  style={{ padding: "5px 12px", fontSize: "0.75rem", gap: "4px" }}
+                >
+                  <Sparkles size={12} />
+                  <span>Analyze & Trace</span>
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Visual Algorithm Tracer Drawer */}
-          <div className="viz-panel">
+          {/* Visual Algorithm Tracer / Output Console Tab Drawer */}
+          <div className="viz-panel" style={{ gridTemplateRows: "44px 1fr" }}>
             <div className="viz-header">
-              <div className="viz-title">
-                <Eye size={14} />
-                <span>Visual Algorithm Tracer (C++ Debug Mode)</span>
+              <div style={{ display: "flex", gap: "16px" }}>
+                <button
+                  className={`tab-btn ${consoleTab === "tracer" ? "active" : ""}`}
+                  onClick={() => setConsoleTab("tracer")}
+                  style={{ padding: "8px 12px", fontSize: "0.75rem", borderBottomWidth: "2px" }}
+                >
+                  <Eye size={12} style={{ marginRight: "4px" }} />
+                  Algorithm Visualizer
+                </button>
+                <button
+                  className={`tab-btn ${consoleTab === "console" ? "active" : ""}`}
+                  onClick={() => setConsoleTab("console")}
+                  style={{ padding: "8px 12px", fontSize: "0.75rem", borderBottomWidth: "2px" }}
+                >
+                  <Terminal size={12} style={{ marginRight: "4px" }} />
+                  Sandbox Output Console
+                </button>
               </div>
               
-              {/* Playback controls */}
-              <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                {/* Step indicator */}
-                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                  Step {currentStepIdx + 1} / {tracerData.steps.length}
-                </span>
+              {/* Playback controls (Visible only on Tracer tab) */}
+              {consoleTab === "tracer" && (
+                <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                    Step {currentStepIdx + 1} / {tracerData.steps.length}
+                  </span>
 
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setIsPlaying(false);
-                      setCurrentStepIdx((p) => Math.max(0, p - 1));
-                    }}
-                    style={{ padding: "4px 8px" }}
-                    disabled={currentStepIdx === 0}
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setIsPlaying(!isPlaying)}
-                    style={{ padding: "4px 8px", borderColor: isPlaying ? "var(--accent-cyan)" : "transparent" }}
-                  >
-                    {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setIsPlaying(false);
-                      setCurrentStepIdx((p) => Math.min(tracerData.steps.length - 1, p + 1));
-                    }}
-                    style={{ padding: "4px 8px" }}
-                    disabled={currentStepIdx === tracerData.steps.length - 1}
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      setIsPlaying(false);
-                      setCurrentStepIdx(0);
-                    }}
-                    style={{ padding: "4px 8px" }}
-                  >
-                    <RotateCcw size={16} />
-                  </button>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setIsPlaying(false);
+                        setCurrentStepIdx((p) => Math.max(0, p - 1));
+                      }}
+                      style={{ padding: "3px 6px" }}
+                      disabled={currentStepIdx === 0}
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => setIsPlaying(!isPlaying)}
+                      style={{ padding: "3px 6px", borderColor: isPlaying ? "var(--accent-cyan)" : "transparent" }}
+                    >
+                      {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setIsPlaying(false);
+                        setCurrentStepIdx((p) => Math.min(tracerData.steps.length - 1, p + 1));
+                      }}
+                      style={{ padding: "3px 6px" }}
+                      disabled={currentStepIdx === tracerData.steps.length - 1}
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setIsPlaying(false);
+                        setCurrentStepIdx(0);
+                      }}
+                      style={{ padding: "3px 6px" }}
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             <div className="viz-body">
-              {/* Floating debug text */}
-              <div
-                style={{
-                  position: "absolute",
-                  top: "12px",
-                  left: "16px",
-                  right: "16px",
-                  background: "rgba(11, 15, 25, 0.9)",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "6px",
-                  padding: "8px 12px",
-                  fontSize: "0.85rem",
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--accent-cyan)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "10px",
-                  boxShadow: "var(--shadow-glow)",
-                  zIndex: 10
-                }}
-              >
-                <div
-                  style={{
-                    width: "8px",
-                    height: "8px",
-                    borderRadius: "50%",
-                    background: "var(--accent-cyan)",
-                    animation: isPlaying ? "pulse 1.5s infinite" : "none"
-                  }}
-                />
-                <span>{currentStep.message}</span>
-              </div>
-
-              {/* Dynamic visualizer canvas */}
-              <div style={{ marginTop: "40px", width: "100%", display: "flex", justifyContent: "center", overflowX: "auto" }}>
-                {/* 1D Array visualization */}
-                {tracerData.structureType === "array" && (
-                  <div className="array-container">
-                    {tracerData.initialState.map((val, idx) => {
-                      const isActive = currentStep.activeIndices?.includes(idx);
-                      const isSuccess = currentStep.successIndices?.includes(idx);
-                      
-                      const activePointers = [];
-                      if (currentStep.pointers) {
-                        Object.entries(currentStep.pointers).forEach(([name, pos]) => {
-                          if (Number(pos) === idx) activePointers.push(name);
-                        });
-                      }
-
-                      return (
-                        <div
-                          key={idx}
-                          className={`array-box ${isActive ? "active" : ""} ${isSuccess ? "success" : ""}`}
-                          style={{ transform: isActive ? "scale(1.08)" : "scale(1.0)" }}
-                        >
-                          {activePointers.map((ptrName, pIdx) => (
-                            <span
-                              key={ptrName}
-                              className="pointer-label"
-                              style={{ top: `-${26 + pIdx * 18}px` }}
-                            >
-                              {ptrName}
-                            </span>
-                          ))}
-                          <span>{val}</span>
-                          <span className="array-index">idx: {idx}</span>
-                        </div>
-                      );
-                    })}
+              {/* Tab: Algorithm Tracer */}
+              {consoleTab === "tracer" && (
+                <>
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "12px",
+                      left: "16px",
+                      right: "16px",
+                      background: "rgba(11, 15, 25, 0.9)",
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "6px",
+                      padding: "8px 12px",
+                      fontSize: "0.85rem",
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--accent-cyan)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      boxShadow: "var(--shadow-glow)",
+                      zIndex: 10
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "8px",
+                        height: "8px",
+                        borderRadius: "50%",
+                        background: "var(--accent-cyan)",
+                        animation: isPlaying ? "pulse 1.5s infinite" : "none"
+                      }}
+                    />
+                    <span>{currentStep.message}</span>
                   </div>
-                )}
 
-                {/* 2D Grid Matrix visualization */}
-                {tracerData.structureType === "grid" && (
-                  <div className="grid-container">
-                    {tracerData.initialState.map((rowVal, rIdx) => (
-                      <div key={rIdx} className="grid-row">
-                        {rowVal.map((val, cIdx) => {
-                          const isActive = currentStep.activeIndices?.some(coord => coord[0] === rIdx && coord[1] === cIdx);
-                          const isSuccess = currentStep.successIndices?.some(coord => coord[0] === rIdx && coord[1] === cIdx);
+                  <div style={{ marginTop: "40px", width: "100%", display: "flex", justifyContent: "center", overflowX: "auto" }}>
+                    {tracerData.structureType === "array" && (
+                      <div className="array-container">
+                        {tracerData.initialState.map((val, idx) => {
+                          const isActive = currentStep.activeIndices?.includes(idx);
+                          const isSuccess = currentStep.successIndices?.includes(idx);
                           
                           const activePointers = [];
                           if (currentStep.pointers) {
                             Object.entries(currentStep.pointers).forEach(([name, pos]) => {
-                              if (pos && typeof pos === "object" && pos.row === rIdx && pos.col === cIdx) {
-                                activePointers.push(name);
-                              }
+                              if (Number(pos) === idx) activePointers.push(name);
                             });
                           }
 
                           return (
                             <div
-                              key={cIdx}
-                              className={`grid-cell ${isActive ? "active" : ""} ${isSuccess ? "success" : ""}`}
+                              key={idx}
+                              className={`array-box ${isActive ? "active" : ""} ${isSuccess ? "success" : ""}`}
+                              style={{ transform: isActive ? "scale(1.08)" : "scale(1.0)" }}
                             >
                               {activePointers.map((ptrName, pIdx) => (
                                 <span
                                   key={ptrName}
-                                  className="grid-cell-pointer"
-                                  style={{ top: `-${14 + pIdx * 14}px` }}
+                                  className="pointer-label"
+                                  style={{ top: `-${26 + pIdx * 18}px` }}
                                 >
                                   {ptrName}
                                 </span>
                               ))}
                               <span>{val}</span>
-                              <span style={{ fontSize: "0.55rem", position: "absolute", bottom: "1px", right: "2px", opacity: 0.4 }}>
-                                {rIdx},{cIdx}
-                              </span>
+                              <span className="array-index">idx: {idx}</span>
                             </div>
                           );
                         })}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    )}
 
-                {/* General stack trace / list visualization */}
-                {tracerData.structureType === "list" && (
-                  <div className="variables-inspector">
-                    {Object.entries(currentStep.pointers || {}).map(([varName, varVal]) => (
-                      <div key={varName} className="variable-card active">
-                        <span className="variable-name">{varName}</span>
-                        <span className="variable-value">
-                          {typeof varVal === "object" ? JSON.stringify(varVal) : String(varVal)}
-                        </span>
+                    {tracerData.structureType === "grid" && (
+                      <div className="grid-container">
+                        {tracerData.initialState.map((rowVal, rIdx) => (
+                          <div key={rIdx} className="grid-row">
+                            {rowVal.map((val, cIdx) => {
+                              const isActive = currentStep.activeIndices?.some(coord => coord[0] === rIdx && coord[1] === cIdx);
+                              const isSuccess = currentStep.successIndices?.some(coord => coord[0] === rIdx && coord[1] === cIdx);
+                              
+                              const activePointers = [];
+                              if (currentStep.pointers) {
+                                Object.entries(currentStep.pointers).forEach(([name, pos]) => {
+                                  if (pos && typeof pos === "object" && pos.row === rIdx && pos.col === cIdx) {
+                                    activePointers.push(name);
+                                  }
+                                });
+                              }
+
+                              return (
+                                <div
+                                  key={cIdx}
+                                  className={`grid-cell ${isActive ? "active" : ""} ${isSuccess ? "success" : ""}`}
+                                >
+                                  {activePointers.map((ptrName, pIdx) => (
+                                    <span
+                                      key={ptrName}
+                                      className="grid-cell-pointer"
+                                      style={{ top: `-${14 + pIdx * 14}px` }}
+                                    >
+                                      {ptrName}
+                                    </span>
+                                  ))}
+                                  <span>{val}</span>
+                                  <span style={{ fontSize: "0.55rem", position: "absolute", bottom: "1px", right: "2px", opacity: 0.4 }}>
+                                    {rIdx},{cIdx}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
+
+                    {tracerData.structureType === "list" && (
+                      <div className="variables-inspector">
+                        {Object.entries(currentStep.pointers || {}).map(([varName, varVal]) => (
+                          <div key={varName} className="variable-card active">
+                            <span className="variable-name">{varName}</span>
+                            <span className="variable-value">
+                              {typeof varVal === "object" ? JSON.stringify(varVal) : String(varVal)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
+
+              {/* Tab: Sandbox Output Console */}
+              {consoleTab === "console" && (
+                <div style={{ width: "100%", height: "100%", padding: "12px", fontFamily: "var(--font-mono)", fontSize: "0.85rem", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <div style={{ borderBottom: "1px solid var(--border-color)", paddingBottom: "6px", display: "flex", justifyContent: "space-between" }}>
+                    <span>Execution Status: <strong style={{ color: consoleOutput.status === "Success" ? "var(--accent-green)" : "var(--accent-rose)" }}>{consoleOutput.status}</strong></span>
+                    <span style={{ color: "var(--text-muted)" }}>C++ compiler sandbox v1.0</span>
+                  </div>
+
+                  {consoleOutput.compileOutput && (
+                    <div style={{ background: "rgba(244, 63, 94, 0.05)", border: "1px solid var(--accent-rose)", padding: "10px", borderRadius: "6px", color: "var(--accent-rose)", whiteSpace: "pre-wrap" }}>
+                      <strong>Compiler Diagnostics:</strong><br />
+                      {consoleOutput.compileOutput}
+                    </div>
+                  )}
+
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div>
+                      <span style={{ color: "var(--text-muted)" }}>[Standard Output (stdout)]</span>
+                      <pre style={{ background: "rgba(0,0,0,0.3)", padding: "10px", borderRadius: "6px", minHeight: "60px", color: "white", marginTop: "4px" }}>
+                        {consoleOutput.stdout || "(no stdout)"}
+                      </pre>
+                    </div>
+
+                    <div>
+                      <span style={{ color: "var(--text-muted)" }}>[Function Return Value]</span>
+                      <pre style={{ background: "rgba(0,0,0,0.3)", padding: "8px 10px", borderRadius: "6px", color: "var(--accent-cyan)", marginTop: "4px" }}>
+                        {consoleOutput.returnValue !== undefined ? String(consoleOutput.returnValue) : "(null)"}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1489,7 +1701,6 @@ export default function CrackCodeDashboard() {
             </div>
             
             <div className="template-drawer-body">
-              {/* Preset templates list */}
               <div>
                 <h4 style={{ fontSize: "0.8rem", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "8px", fontWeight: "600" }}>
                   Standard Boilerplates
@@ -1513,7 +1724,6 @@ export default function CrackCodeDashboard() {
                 </div>
               </div>
 
-              {/* Custom AI generator */}
               <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "16px", marginTop: "8px" }}>
                 <h4 style={{ fontSize: "0.8rem", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "8px", fontWeight: "600" }}>
                   AI Custom Boilerplate Generator
@@ -1552,6 +1762,77 @@ export default function CrackCodeDashboard() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Online Judge Submission Verdict Modal */}
+      {showSubmitModal && (
+        <div className="google-chooser-overlay" style={{ zIndex: 450 }}>
+          <div className="google-chooser-modal" style={{ width: "450px", background: "var(--bg-secondary)", color: "white", border: "1px solid var(--border-color)" }}>
+            <div className="google-chooser-header" style={{ textAlign: "center", borderBottom: "1px solid var(--border-color)", paddingBottom: "12px" }}>
+              {submitLoading ? (
+                <>
+                  <div style={{ width: "36px", height: "36px", borderRadius: "50%", border: "3px solid var(--accent-amber)", borderTopColor: "transparent", animation: "spin 1s linear infinite", margin: "0 auto 10px" }}></div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: "800", color: "var(--accent-amber)" }}>Evaluating Solution...</h3>
+                  <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Running compiled code against test suites</p>
+                </>
+              ) : (
+                <>
+                  {submitResult.status === "Accepted" ? (
+                    <Award size={36} style={{ color: "var(--accent-green)", margin: "0 auto 10px" }} />
+                  ) : (
+                    <AlertTriangle size={36} style={{ color: "var(--accent-rose)", margin: "0 auto 10px" }} />
+                  )}
+                  <h3 style={{ fontSize: "1.35rem", fontWeight: "800", color: submitResult.status === "Accepted" ? "var(--accent-green)" : "var(--accent-rose)" }}>
+                    {submitResult.status}
+                  </h3>
+                  <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "4px" }}>
+                    Submission Score: <strong>{submitResult.score}/100</strong>
+                  </p>
+                </>
+              )}
+            </div>
+
+            {!submitLoading && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", margin: "10px 0" }}>
+                <span style={{ fontSize: "0.75rem", textTransform: "uppercase", color: "var(--text-muted)", fontWeight: "600" }}>Test Case Diagnostics</span>
+                
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "180px", overflowY: "auto" }}>
+                  {(submitResult.testCases || []).map((t, idx) => (
+                    <div key={idx} style={{ background: "var(--bg-primary)", padding: "8px 12px", borderRadius: "6px", border: "1px solid", borderColor: t.passed ? "rgba(16, 185, 129, 0.2)" : "rgba(244, 63, 94, 0.2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", flexDirection: "column", textAlign: "left", gap: "2px" }}>
+                        <span style={{ fontSize: "0.8rem", fontWeight: "700" }}>Test Case #{idx + 1}</span>
+                        <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Input: {t.input}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Got: {t.got}</span>
+                        {t.passed ? (
+                          <CheckCircle2 size={14} style={{ color: "var(--accent-green)" }} />
+                        ) : (
+                          <XCircle size={14} style={{ color: "var(--accent-rose)" }} />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px", fontSize: "0.8rem", color: "var(--text-muted)", border: "1px solid var(--border-color)", textAlign: "left" }}>
+                  {submitResult.feedback}
+                </div>
+              </div>
+            )}
+
+            <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "12px", display: "flex", justifyContent: "flex-end" }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowSubmitModal(false)}
+                disabled={submitLoading}
+                style={{ fontSize: "0.8rem", padding: "6px 14px" }}
+              >
+                Close Verdict
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Custom Auth Login / Signup Modal */}
@@ -1609,6 +1890,69 @@ export default function CrackCodeDashboard() {
                 {authTab === "login" ? "Enter Dashboard" : "Create CP Profile"}
               </button>
             </form>
+
+            <div style={{ display: "flex", alignItems: "center", margin: "10px 0", width: "100%" }}>
+              <div style={{ flex: 1, height: "1px", background: "var(--border-color)" }}></div>
+              <span style={{ padding: "0 10px", fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>or</span>
+              <div style={{ flex: 1, height: "1px", background: "var(--border-color)" }}></div>
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-google"
+              onClick={handleGoogleAuth}
+              style={{ display: "flex", alignItems: "center", gap: "10px" }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              </svg>
+              <span>Continue with Google</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Google Account Chooser Simulation Overlay */}
+      {showGoogleChooser && (
+        <div className="google-chooser-overlay">
+          <div className="google-chooser-modal">
+            <div className="google-chooser-header">
+              <svg width="24" height="24" viewBox="0 0 24 24" style={{ marginBottom: "8px" }}>
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              </svg>
+              <h3 style={{ fontSize: "1.1rem", fontWeight: "700" }}>Choose an account</h3>
+              <p style={{ fontSize: "0.8rem", color: "#6b7280" }}>to continue to CrackCode</p>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {MOCK_GOOGLE_ACCOUNTS.map((acc) => (
+                <div 
+                  key={acc.email} 
+                  className="google-account-item"
+                  onClick={() => handleSelectGoogleAccount(acc)}
+                >
+                  <div className="google-avatar">{acc.avatar}</div>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ fontWeight: "600", fontSize: "0.85rem" }}>{acc.name}</div>
+                    <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>{acc.email}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button 
+              className="btn btn-text" 
+              onClick={() => setShowGoogleChooser(false)}
+              style={{ marginTop: "10px", fontSize: "0.8rem", color: "#4b5563" }}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

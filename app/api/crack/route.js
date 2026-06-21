@@ -10,7 +10,9 @@ export async function POST(req) {
       clientApiKey,
       chatMessage,
       history,
-      action = "analyze" // "analyze" | "stressTest" | "optimize" | "customizeTemplate"
+      action = "analyze", // "analyze" | "stressTest" | "optimize" | "customizeTemplate" | "run" | "submit" | "generateProblem"
+      problemTitle,
+      problemCategory
     } = await req.json();
 
     // Determine which API key to use
@@ -25,15 +27,15 @@ export async function POST(req) {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    // Elite Socratic system prompts for each action type
-    const systemPrompt = `You are CrackCode, an elite competitive programming coach at NextWave.
-Your goal is to guide students to fix their C++ code bugs, optimize complexity, and visualize code execution.
+    // Socratic System Prompts
+    const systemPrompt = `You are CrackCode, an elite competitive programming coach and sandbox compiler at NextWave.
+Your goal is to help students debug C++ code, execute simulations, evaluate submissions, and set up CP challenges.
 
-IMPORTANT: You must respond ONLY with a valid JSON object matching the requested schema. Do not output any markdown code fence blocks (e.g. do NOT wrap your response in \`\`\`json). Return a raw JSON string.
+IMPORTANT: You must respond ONLY with a valid JSON object matching the requested action schema. Do not output any markdown code fence blocks (e.g. do NOT wrap your response in \`\`\`json). Return a raw JSON string.
 
 Based on the requested action, return a JSON object conforming EXACTLY to the following schemas:
 
-### ACTION: "analyze" (or default if no chatMessage)
+### ACTION: "analyze"
 {
   "socraticFeedback": {
     "analysis": "Your detailed Socratic analysis of the code's logic. Ask guiding questions, point out general issues, do not give away the full code.",
@@ -57,9 +59,36 @@ Based on the requested action, return a JSON object conforming EXACTLY to the fo
     ]
   }
 }
-Note: For dry-run traces:
-- Make sure the input array/grid is small (size 4 to 8 elements/cells) to keep the visualizer readable.
-- If the problem deals with arrays, structureType must be "array". If it deals with 2D matrices/grids (like flood fill or DP tables), structureType must be "grid". If it's a general trace of variables (like DP memo states, counts, sums), structureType must be "list".
+
+### ACTION: "run"
+{
+  "status": "Success" | "Compile Error" | "Runtime Error",
+  "compileOutput": "Compiler warnings or errors, if any. Leave empty on success.",
+  "stdout": "Any output printed during execution.",
+  "returnValue": "Returned value of the main function (e.g., array value, number, boolean string)."
+}
+
+### ACTION: "submit"
+{
+  "status": "Accepted" | "Wrong Answer" | "Compile Error" | "Time Limit Exceeded",
+  "score": 100 or number (0-100),
+  "testCases": [
+    {
+      "input": "test case input values",
+      "expected": "expected correct output",
+      "got": "output returned by student's code",
+      "passed": true | false
+    }
+  ],
+  "feedback": "Overall summary of the submission: did it fail on edge cases, size limits, negative bounds, etc."
+}
+
+### ACTION: "generateProblem"
+{
+  "description": "A detailed, beautiful markdown problem description with constraints, sample inputs, and outputs.",
+  "defaultCode": "// Complete C++ template boilerplate function signature for this specific problem\\n#include <vector>\\nusing namespace std;\\n...",
+  "defaultTraceInput": "{\\"initialState\\": [2, 7, 11], \\"target\\": 9}"
+}
 
 ### ACTION: "stressTest"
 {
@@ -81,29 +110,21 @@ Note: For dry-run traces:
 {
   "currentComplexity": { "time": "e.g. O(N^2)", "space": "e.g. O(1)" },
   "optimalComplexity": { "time": "e.g. O(N)", "space": "e.g. O(N)" },
-  "optimizationRoute": [
-    "Identify redundant inner loops",
-    "Store prefix sums to answer range queries in O(1)",
-    "Implement two-pointer sweep to reduce complexity"
-  ],
-  "socraticFeedback": {
-    "analysis": "Explain the time/space complexity bottleneck Socratically. Guide them on why this optimization works."
-  },
-  "optimizedSkeleton": "// C++ boilerplate code skeleton demonstrating the optimal structure (do not write the full correct solution, just the classes/types and logic comments)"
+  "optimizationRoute": ["step 1", "step 2"],
+  "socraticFeedback": { "analysis": "explain logic bottleneck" },
+  "optimizedSkeleton": "// C++ boilerplate"
 }
 
 ### ACTION: "customizeTemplate"
 {
-  "customTemplate": "// Customized C++ code template (e.g. customized DSU, Dijkstra with custom weight types, Segment Tree with Range Minimum Query)",
-  "socraticFeedback": {
-    "analysis": "How this template is constructed, its big-O complexity, and instructions on how to use it inside a solution class."
-  }
+  "customTemplate": "// C++ template",
+  "socraticFeedback": { "analysis": "instructions" }
 }
 
-### ACTION: "chat" (when chatMessage is provided and action is default)
+### ACTION: "chat"
 {
   "socraticFeedback": {
-    "analysis": "Your Socratic answer to their chat question. Maintain a coaching tone. Do not write the full corrected code for them. Ask them questions to lead them to the answer."
+    "analysis": "Socratic answer to question. Ask questions to lead them to the answer."
   }
 }`;
 
@@ -128,7 +149,49 @@ ${historyStr}
 New Student Question:
 ${chatMessage}
 
-Provide your Socratic response. Maintain the JSON structure response format matching action "chat".`;
+Provide your Socratic response. Maintain the JSON response for action "chat".`;
+    } else if (action === "run") {
+      userPrompt = `
+You are a C++ execution sandbox. Execute the C++ function written in this code:
+\`\`\`cpp
+${code}
+\`\`\`
+
+Using the custom trace inputs provided here:
+${customInput}
+
+Run the logic step-by-step. If there is a compilation error (e.g. missing types, syntax error), set status to "Compile Error" and fill in compileOutput. Otherwise, return the stdout outputs and the function return value. Maintain the JSON format for action "run".`;
+    } else if (action === "submit") {
+      userPrompt = `
+You are an Online Judge evaluating a C++ solution.
+Problem Details:
+${problem}
+
+Student's Submitted C++ Code:
+\`\`\`cpp
+${code}
+\`\`\`
+
+Test this code against 3 to 4 distinct test cases:
+1. The sample test case.
+2. An edge case (empty bounds, null states, large numbers).
+3. A performance scale case (duplicates, random arrays).
+
+Perform compilation check and dry run. If the code fails any case, set status to "Wrong Answer" or "Time Limit Exceeded" and score accordingly (e.g., 25, 50, 75). If all cases pass, set status to "Accepted" and score to 100. Maintain the JSON format for action "submit".`;
+    } else if (action === "generateProblem") {
+      userPrompt = `
+You are an expert problem setter. Generate a C++ competitive programming challenge description for:
+Problem Title: ${problemTitle}
+Category: ${problemCategory}
+
+Format the description in clean Markdown containing:
+- Problem Statement
+- Constraints (e.g. Array size up to 10^5)
+- Input & Output Formats
+- Sample Input & Output with explanation.
+
+Generate a C++ template function boilerplate (include necessary headers, standard namespaces, class/function definition).
+Generate a defaultTraceInput JSON string that matches the structure type. Maintain the JSON format for action "generateProblem".`;
     } else if (action === "stressTest") {
       userPrompt = `
 Problem Statement:
@@ -161,7 +224,6 @@ ${problem || "General C++ library"}
 
 Generate a customized, clean, and highly-optimized C++ template class matching this request. Include inline comments. Maintain the JSON response for action "customizeTemplate".`;
     } else {
-      // Default: analyze
       userPrompt = `
 Problem Statement:
 ${problem || "Find two numbers in sorted array that sum to target."}
@@ -174,7 +236,7 @@ ${code}
 Test Input to Trace:
 ${customInput || "[2, 7, 11, 15] with target 9"}
 
-Provide the initial Socratic analysis, 3 progressive hints, and step-by-step dry-run execution trace. Make sure structureType reflects the variable trace type (array, grid, list). Maintain the JSON response for action "analyze".`;
+Provide the initial Socratic analysis, 3 hints, and step-by-step dry-run execution trace. Maintain the JSON response for action "analyze".`;
     }
 
     const response = await ai.models.generateContent({
